@@ -43,6 +43,8 @@ def clear_canvas():
     st.session_state.prev_point = None
     st.session_state.drawing = False
     st.session_state.debug_info = []
+    st.session_state.save_triggered = False  # Reset save trigger
+    # st.experimental_rerun()  # Force a rerun to reset the app state
 
 
 def save_drawing_callback():
@@ -123,11 +125,11 @@ def main():
     # Canvas operations
     col1, col2, col3 = st.sidebar.columns(3)
     clear_btn = col1.button(
-        "Clear Canvas", key=f"clear_canvas_btn", on_click=clear_canvas)
+        "Clear Canvas", key="clear_canvas_btn", on_click=clear_canvas)
     save_btn = col2.button(
-        "Save Drawing", key=f"save_drawing_btn", on_click=save_drawing_callback)
+        "Save Drawing", key="save_drawing_btn", on_click=save_drawing_callback)
     view_btn = col3.button(
-        "View History", key=f"view_history_btn", on_click=view_history_callback)
+        "View History", key="view_history_btn", on_click=view_history_callback)
 
     # Main content area
     frame_placeholder = st.empty()
@@ -214,10 +216,10 @@ def main():
                         combined_image, channels="BGR", use_container_width=True)
 
                 # Display debug info
-                if st.session_state.debug_info:
-                    st.sidebar.text("Debug Info:")
-                    for info in st.session_state.debug_info:
-                        st.sidebar.text(info)
+                # if st.session_state.debug_info:
+                #     st.sidebar.text("Debug Info:")
+                #     for info in st.session_state.debug_info:
+                #         st.sidebar.text(info)
 
                 # Handle save action
                 if st.session_state.save_triggered:
@@ -248,7 +250,11 @@ def main():
                         # Save to database
                         db.save_drawing(img_str, gemini_analysis)
                         st.sidebar.success("Drawing saved successfully!")
+
+                        # Reset state after saving
                         st.session_state.save_triggered = False
+                        st.session_state.camera_active = True
+                        # st.experimental_rerun()
 
                     except Exception as e:
                         st.sidebar.error(f"Error saving drawing: {str(e)}")
@@ -258,7 +264,8 @@ def main():
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
         finally:
-            cap.release()
+            if 'cap' in locals():
+                cap.release()
 
 
 if __name__ == "__main__":
