@@ -32,7 +32,15 @@ class DrawingDatabase:
     def get_all_drawings(self):
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM drawings ORDER BY timestamp DESC')
-        return cursor.fetchall()
+        drawings = cursor.fetchall()
+
+        # Parse JSON gemini_analysis back to string
+        parsed_drawings = []
+        for drawing in drawings:
+            gemini_analysis = json.loads(drawing[2]) if drawing[2] else None
+            parsed_drawings.append(
+                (drawing[0], drawing[1], gemini_analysis, drawing[3]))
+        return parsed_drawings
 
     def close(self):
         self.conn.close()

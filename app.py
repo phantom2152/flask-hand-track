@@ -31,6 +31,7 @@ def clear_canvas():
         st.session_state.canvas = np.zeros_like(st.session_state.canvas)
     st.session_state.camera_active = True
     st.session_state.current_analysis = None
+    st.session_state.view_history_triggered = False
 
 
 def save_drawing_callback():
@@ -201,37 +202,32 @@ def main():
             # Handle view history button action
             if st.session_state.view_history_triggered:
                 try:
-                    st.sidebar.header("Drawing History")
-                    drawings = db.get_all_drawings()
+                    with st.spinner('Loading drawing history...'):
+                        st.sidebar.header("Drawing History")
+                        drawings = db.get_all_drawings()
 
-                    if not drawings:
-                        st.sidebar.info("No drawings saved yet!")
-                    else:
-                        for idx, drawing in enumerate(drawings):
-                            with st.sidebar.expander(f"Drawing {idx + 1}"):
-                                st.image(
-                                    f"data:image/png;base64,{drawing[1]}",
-                                    use_container_width=True
-                                )
-                                if drawing[2]:  # If Gemini analysis exists
-                                    st.markdown(
-                                        f"**AI Analysis:**\n{drawing[2]}")
-                                else:
-                                    st.info(
-                                        "No AI analysis available (API key was not provided)")
-                                st.write("Timestamp:", drawing[3])
+                        if not drawings:
+                            st.sidebar.info("No drawings saved yet!")
+                        else:
+                            st.write("Click 'Clear Canvas' to resume drawing")
+                            for idx, drawing in enumerate(drawings):
+                                with st.expander(f"Drawing {idx + 1} - {drawing[3]}", expanded=False):
+                                    st.image(
+                                        f"data:image/png;base64,{drawing[1]}",
+                                        use_container_width=True
+                                    )
+                                    if drawing[2]:  # If Gemini analysis exists
+                                        st.markdown(
+                                            f"**AI Analysis:**\n{drawing[2]}")
+                                    else:
+                                        st.info(
+                                            "No AI analysis available (API key was not provided)")
 
-                    # Keep view history open until clear canvas is clicked
-                    if not clear_btn:
-                        frame_placeholder.empty()
-                        st.info("Click 'Clear Canvas' to start a new drawing")
-                    else:
-                        st.session_state.view_history_triggered = False
-                        st.session_state.camera_active = True
+                            if clear_btn:
+                                st.experimental_rerun()
 
                 except Exception as e:
-                    st.sidebar.error(
-                        f"Error loading drawing history: {str(e)}")
+                    st.error(f"Error loading drawing history: {str(e)}")
                     st.session_state.view_history_triggered = False
                     st.session_state.camera_active = True
 
