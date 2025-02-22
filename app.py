@@ -20,19 +20,27 @@ def initialize_state():
         st.session_state.save_triggered = False
     if 'view_history_triggered' not in st.session_state:
         st.session_state.view_history_triggered = False
+    if 'camera_active' not in st.session_state:
+        st.session_state.camera_active = True
+    if 'current_analysis' not in st.session_state:
+        st.session_state.current_analysis = None
 
 
 def clear_canvas():
     if st.session_state.canvas is not None:
         st.session_state.canvas = np.zeros_like(st.session_state.canvas)
+    st.session_state.camera_active = True
+    st.session_state.current_analysis = None
 
 
 def save_drawing_callback():
     st.session_state.save_triggered = True
+    st.session_state.camera_active = False
 
 
 def view_history_callback():
     st.session_state.view_history_triggered = True
+    st.session_state.camera_active = False
 
 
 def main():
@@ -90,7 +98,7 @@ def main():
 
     # Camera feed placeholders
     frame_placeholder = st.empty()
-    canvas_placeholder = st.empty()
+    analysis_placeholder = st.empty()
 
     # Initialize camera
     cap = cv2.VideoCapture(0)
@@ -99,54 +107,56 @@ def main():
 
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret:
-                st.error("Failed to access webcam")
-                break
+            if st.session_state.camera_active:
+                ret, frame = cap.read()
+                if not ret:
+                    st.error("Failed to access webcam")
+                    break
 
-            frame = cv2.flip(frame, 1)
+                frame = cv2.flip(frame, 1)
 
-            # Initialize canvas with frame dimensions if not already done
-            if st.session_state.canvas is None:
-                st.session_state.canvas = np.zeros(frame.shape, dtype=np.uint8)
+                # Initialize canvas with frame dimensions if not already done
+                if st.session_state.canvas is None:
+                    st.session_state.canvas = np.zeros(
+                        frame.shape, dtype=np.uint8)
 
-            results = hand_tracker.process_frame(frame)
-            thumb_pos, index_pos = hand_tracker.get_finger_positions(
-                results, frame.shape)
+                results = hand_tracker.process_frame(frame)
+                thumb_pos, index_pos = hand_tracker.get_finger_positions(
+                    results, frame.shape)
 
-            if thumb_pos and index_pos:
-                distance = hand_tracker.calculate_distance(
-                    thumb_pos, index_pos)
+                if thumb_pos and index_pos:
+                    distance = hand_tracker.calculate_distance(
+                        thumb_pos, index_pos)
 
-                # Drawing logic
-                if distance < min_distance:
-                    if not st.session_state.drawing:
-                        st.session_state.drawing = True
-                        st.session_state.prev_point = index_pos
-                    else:
-                        cv2.line(st.session_state.canvas,
-                                 st.session_state.prev_point,
-                                 index_pos,
-                                 color_rgb,
-                                 line_thickness)
-                        st.session_state.prev_point = index_pos
+                    # Drawing logic
+                    if distance < min_distance:
+                        if not st.session_state.drawing:
+                            st.session_state.drawing = True
+                            st.session_state.prev_point = index_pos
+                        else:
+                            cv2.line(st.session_state.canvas,
+                                     st.session_state.prev_point,
+                                     index_pos,
+                                     color_rgb,
+                                     line_thickness)
+                            st.session_state.prev_point = index_pos
 
-                    # Draw circles around fingers for visual feedback
-                    cv2.circle(frame, thumb_pos, 15,
-                               (0, 255, 0), -1)  # Filled circle
-                    cv2.circle(frame, index_pos, 15,
-                               (0, 255, 0), -1)  # Filled circle
+                        # Draw circles around fingers for visual feedback
+                        cv2.circle(frame, thumb_pos, 15,
+                                   (0, 255, 0), -1)  # Filled circle
+                        cv2.circle(frame, index_pos, 15,
+                                   (0, 255, 0), -1)  # Filled circle
 
-                elif distance > max_distance:
-                    st.session_state.drawing = False
-                    st.session_state.prev_point = None
+                    elif distance > max_distance:
+                        st.session_state.drawing = False
+                        st.session_state.prev_point = None
 
-            # Display frame and canvas
-            frame = hand_tracker.draw_landmarks(frame, results)
-            combined_image = cv2.addWeighted(
-                frame, 0.7, st.session_state.canvas, 0.8, 0)  # Adjusted weights
-            frame_placeholder.image(
-                combined_image, channels="BGR", use_container_width=True)
+                # Display frame and canvas
+                frame = hand_tracker.draw_landmarks(frame, results)
+                combined_image = cv2.addWeighted(
+                    frame, 0.7, st.session_state.canvas, 0.8, 0)  # Adjusted weights
+                frame_placeholder.image(
+                    combined_image, channels="BGR", use_container_width=True)
 
             # Handle save button action using state management
             if st.session_state.save_triggered:
@@ -158,24 +168,35 @@ def main():
                     canvas_pil.save(buffered, format="PNG")
                     img_str = base64.b64encode(buffered.getvalue()).decode()
 
+                    # Show the frozen frame
+                    if st.session_state.canvas is not None:
+                        frame_placeholder.image(cv2.cvtColor(
+                            st.session_state.canvas, cv2.COLOR_BGR2RGB))
+
                     # Analyze with Gemini if API key is provided
                     gemini_analysis = None
                     if api_key:
                         with st.spinner('Analyzing drawing with Gemini AI...'):
                             gemini_analysis = gemini_helper.analyze_image(
                                 f"data:image/png;base64,{img_str}")
+                            st.session_state.current_analysis = gemini_analysis
+                            analysis_placeholder.markdown(
+                                f"**AI Analysis:**\n{gemini_analysis}")
+                    else:
+                        analysis_placeholder.warning(
+                            "No Gemini API key provided. Add your API key in the sidebar for AI analysis.")
 
                     # Save to database
                     db.save_drawing(img_str, gemini_analysis)
                     st.sidebar.success("Drawing saved successfully!")
-                    if gemini_analysis:
-                        st.sidebar.info("AI analysis completed!")
 
-                    # Reset save trigger
+                    # Reset save trigger but keep camera inactive
                     st.session_state.save_triggered = False
+
                 except Exception as e:
                     st.sidebar.error(f"Error saving drawing: {str(e)}")
                     st.session_state.save_triggered = False
+                    st.session_state.camera_active = True
 
             # Handle view history button action
             if st.session_state.view_history_triggered:
@@ -190,19 +211,29 @@ def main():
                             with st.sidebar.expander(f"Drawing {idx + 1}"):
                                 st.image(
                                     f"data:image/png;base64,{drawing[1]}",
-                                    use_container_width=True,
-                                    caption=f"Drawing {idx + 1}"
+                                    use_container_width=True
                                 )
-                                if drawing[2]:  # Gemini analysis
-                                    st.write("AI Analysis:", drawing[2])
+                                if drawing[2]:  # If Gemini analysis exists
+                                    st.markdown(
+                                        f"**AI Analysis:**\n{drawing[2]}")
+                                else:
+                                    st.info(
+                                        "No AI analysis available (API key was not provided)")
                                 st.write("Timestamp:", drawing[3])
 
-                    # Reset view history trigger
-                    st.session_state.view_history_triggered = False
+                    # Keep view history open until clear canvas is clicked
+                    if not clear_btn:
+                        frame_placeholder.empty()
+                        st.info("Click 'Clear Canvas' to start a new drawing")
+                    else:
+                        st.session_state.view_history_triggered = False
+                        st.session_state.camera_active = True
+
                 except Exception as e:
                     st.sidebar.error(
                         f"Error loading drawing history: {str(e)}")
                     st.session_state.view_history_triggered = False
+                    st.session_state.camera_active = True
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
