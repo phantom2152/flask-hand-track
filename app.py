@@ -16,11 +16,17 @@ def initialize_state():
         st.session_state.drawing = False
     if 'prev_point' not in st.session_state:
         st.session_state.prev_point = None
+    if 'save_triggered' not in st.session_state:
+        st.session_state.save_triggered = False
 
 
 def clear_canvas():
     if st.session_state.canvas is not None:
         st.session_state.canvas = np.zeros_like(st.session_state.canvas)
+
+
+def save_drawing_callback():
+    st.session_state.save_triggered = True
 
 
 def main():
@@ -43,6 +49,11 @@ def main():
         min_distance, 200, 100,
         key="max_distance_slider"
     )
+    line_thickness = st.sidebar.slider(
+        "Line Thickness",
+        1, 20, 5,
+        key="line_thickness_slider"
+    )
     color = st.sidebar.color_picker(
         "Drawing Color",
         "#FF0000",
@@ -64,7 +75,8 @@ def main():
     col1, col2, col3 = st.sidebar.columns(3)
     clear_btn = col1.button(
         "Clear Canvas", key=f"clear_canvas_btn", on_click=clear_canvas)
-    save_btn = col2.button("Save Drawing", key=f"save_drawing_btn")
+    save_btn = col2.button(
+        "Save Drawing", key=f"save_drawing_btn", on_click=save_drawing_callback)
     view_btn = col3.button("View History", key=f"view_history_btn")
 
     # Camera feed placeholders
@@ -107,12 +119,14 @@ def main():
                                  st.session_state.prev_point,
                                  index_pos,
                                  color_rgb,
-                                 2)
+                                 line_thickness)
                         st.session_state.prev_point = index_pos
 
-                    # Draw circles around fingers
-                    cv2.circle(frame, thumb_pos, 10, (0, 255, 0), 2)
-                    cv2.circle(frame, index_pos, 10, (0, 255, 0), 2)
+                    # Draw circles around fingers for visual feedback
+                    cv2.circle(frame, thumb_pos, 15,
+                               (0, 255, 0), -1)  # Filled circle
+                    cv2.circle(frame, index_pos, 15,
+                               (0, 255, 0), -1)  # Filled circle
 
                 elif distance > max_distance:
                     st.session_state.drawing = False
@@ -121,12 +135,12 @@ def main():
             # Display frame and canvas
             frame = hand_tracker.draw_landmarks(frame, results)
             combined_image = cv2.addWeighted(
-                frame, 1, st.session_state.canvas, 0.5, 0)
+                frame, 0.7, st.session_state.canvas, 0.8, 0)  # Adjusted weights
             frame_placeholder.image(
                 combined_image, channels="BGR", use_container_width=True)
 
-            # Handle save button action
-            if save_btn:
+            # Handle save button action using state management
+            if st.session_state.save_triggered:
                 try:
                     # Convert canvas to base64
                     canvas_pil = Image.fromarray(cv2.cvtColor(
@@ -144,8 +158,12 @@ def main():
                     # Save to database
                     db.save_drawing(img_str, gemini_analysis)
                     st.sidebar.success("Drawing saved!")
+
+                    # Reset save trigger
+                    st.session_state.save_triggered = False
                 except Exception as e:
                     st.sidebar.error(f"Error saving drawing: {str(e)}")
+                    st.session_state.save_triggered = False
 
             # Handle view history button action
             if view_btn:
