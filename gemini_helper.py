@@ -31,7 +31,7 @@ class GeminiHelper:
             prompt = """
             Analyze this hand-drawn image and:
             1. Identify any geometric shapes present
-            2. Detect any mathematical expressions or equations
+            2. Detect any mathematical expressions or equations if so solve them.
             3. Describe any patterns or symbols
             4. Provide a brief interpretation of what's drawn
             """

@@ -24,6 +24,14 @@ def initialize_state():
         st.session_state.camera_active = True
     if 'current_analysis' not in st.session_state:
         st.session_state.current_analysis = None
+    if 'debug_info' not in st.session_state:
+        st.session_state.debug_info = []
+
+
+def log_debug_info(info):
+    st.session_state.debug_info.append(info)
+    if len(st.session_state.debug_info) > 5:  # Keep only last 5 messages
+        st.session_state.debug_info.pop(0)
 
 
 def clear_canvas():
@@ -32,6 +40,9 @@ def clear_canvas():
     st.session_state.camera_active = True
     st.session_state.current_analysis = None
     st.session_state.view_history_triggered = False
+    st.session_state.prev_point = None
+    st.session_state.drawing = False
+    st.session_state.debug_info = []
 
 
 def save_drawing_callback():
@@ -155,11 +166,20 @@ def main():
                         distance = hand_tracker.calculate_distance(
                             thumb_pos, index_pos)
 
+                        # Log state for debugging
+                        log_debug_info(f"Distance: {distance:.2f}, Drawing: {st.session_state.drawing}, "
+                                       f"Prev Point: {st.session_state.prev_point}")
+
                         if distance < min_distance:
+                            # Start new line if not drawing
                             if not st.session_state.drawing:
+                                log_debug_info("Starting new line")
                                 st.session_state.drawing = True
                                 st.session_state.prev_point = index_pos
-                            else:
+                            # Continue line if already drawing
+                            elif st.session_state.prev_point is not None:
+                                log_debug_info(
+                                    f"Drawing line from {st.session_state.prev_point} to {index_pos}")
                                 cv2.line(
                                     st.session_state.canvas,
                                     st.session_state.prev_point,
@@ -167,20 +187,37 @@ def main():
                                     color_rgb,
                                     line_thickness
                                 )
-                                st.session_state.prev_point = index_pos
+                            st.session_state.prev_point = index_pos
 
+                            # Visual feedback
                             cv2.circle(frame, thumb_pos, 15, (0, 255, 0), -1)
                             cv2.circle(frame, index_pos, 15, (0, 255, 0), -1)
 
                         elif distance > max_distance:
+                            # Stop drawing and reset previous point
+                            log_debug_info(
+                                "Stopping drawing - distance > max_distance")
                             st.session_state.drawing = False
                             st.session_state.prev_point = None
+                        else:
+                            # Medium distance - should not draw but maintain current state
+                            log_debug_info(
+                                "Medium distance - maintaining state")
+                            if st.session_state.drawing:
+                                st.session_state.drawing = False
+                                st.session_state.prev_point = None
 
                     frame = hand_tracker.draw_landmarks(frame, results)
                     combined_image = cv2.addWeighted(
                         frame, 0.7, st.session_state.canvas, 0.8, 0)
                     frame_placeholder.image(
                         combined_image, channels="BGR", use_container_width=True)
+
+                # Display debug info
+                if st.session_state.debug_info:
+                    st.sidebar.text("Debug Info:")
+                    for info in st.session_state.debug_info:
+                        st.sidebar.text(info)
 
                 # Handle save action
                 if st.session_state.save_triggered:
