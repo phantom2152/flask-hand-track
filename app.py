@@ -18,6 +18,8 @@ def initialize_state():
         st.session_state.prev_point = None
     if 'save_triggered' not in st.session_state:
         st.session_state.save_triggered = False
+    if 'view_history_triggered' not in st.session_state:
+        st.session_state.view_history_triggered = False
 
 
 def clear_canvas():
@@ -27,6 +29,10 @@ def clear_canvas():
 
 def save_drawing_callback():
     st.session_state.save_triggered = True
+
+
+def view_history_callback():
+    st.session_state.view_history_triggered = True
 
 
 def main():
@@ -64,10 +70,12 @@ def main():
     color_rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
 
     # Gemini API Setup
+    st.sidebar.header("AI Analysis")
     api_key = st.sidebar.text_input(
         "Gemini API Key",
         type="password",
-        key="gemini_api_key"
+        key="gemini_api_key",
+        help="Enter your Gemini API key to enable AI analysis of your drawings"
     )
     gemini_helper = GeminiHelper(api_key if api_key else None)
 
@@ -77,7 +85,8 @@ def main():
         "Clear Canvas", key=f"clear_canvas_btn", on_click=clear_canvas)
     save_btn = col2.button(
         "Save Drawing", key=f"save_drawing_btn", on_click=save_drawing_callback)
-    view_btn = col3.button("View History", key=f"view_history_btn")
+    view_btn = col3.button(
+        "View History", key=f"view_history_btn", on_click=view_history_callback)
 
     # Camera feed placeholders
     frame_placeholder = st.empty()
@@ -152,12 +161,15 @@ def main():
                     # Analyze with Gemini if API key is provided
                     gemini_analysis = None
                     if api_key:
-                        gemini_analysis = gemini_helper.analyze_image(
-                            f"data:image/png;base64,{img_str}")
+                        with st.spinner('Analyzing drawing with Gemini AI...'):
+                            gemini_analysis = gemini_helper.analyze_image(
+                                f"data:image/png;base64,{img_str}")
 
                     # Save to database
                     db.save_drawing(img_str, gemini_analysis)
-                    st.sidebar.success("Drawing saved!")
+                    st.sidebar.success("Drawing saved successfully!")
+                    if gemini_analysis:
+                        st.sidebar.info("AI analysis completed!")
 
                     # Reset save trigger
                     st.session_state.save_triggered = False
@@ -166,19 +178,31 @@ def main():
                     st.session_state.save_triggered = False
 
             # Handle view history button action
-            if view_btn:
-                drawings = db.get_all_drawings()
-                for idx, drawing in enumerate(drawings):
-                    st.image(
-                        f"data:image/png;base64,{drawing[1]}",
-                        use_container_width=True,
-                        caption=f"Drawing {idx + 1}"
-                    )
-                    if drawing[2]:  # Gemini analysis
-                        with st.expander(f"Analysis for Drawing {idx + 1}"):
-                            st.write(drawing[2])
-                    st.write("Timestamp:", drawing[3])
-                    st.divider()
+            if st.session_state.view_history_triggered:
+                try:
+                    st.sidebar.header("Drawing History")
+                    drawings = db.get_all_drawings()
+
+                    if not drawings:
+                        st.sidebar.info("No drawings saved yet!")
+                    else:
+                        for idx, drawing in enumerate(drawings):
+                            with st.sidebar.expander(f"Drawing {idx + 1}"):
+                                st.image(
+                                    f"data:image/png;base64,{drawing[1]}",
+                                    use_container_width=True,
+                                    caption=f"Drawing {idx + 1}"
+                                )
+                                if drawing[2]:  # Gemini analysis
+                                    st.write("AI Analysis:", drawing[2])
+                                st.write("Timestamp:", drawing[3])
+
+                    # Reset view history trigger
+                    st.session_state.view_history_triggered = False
+                except Exception as e:
+                    st.sidebar.error(
+                        f"Error loading drawing history: {str(e)}")
+                    st.session_state.view_history_triggered = False
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")

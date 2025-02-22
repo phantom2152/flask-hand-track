@@ -14,7 +14,7 @@ class GeminiHelper:
     def setup_model(self):
         try:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro-vision')
+            self.model = genai.GenerativeModel('gemini-2.0-flash')
         except Exception as e:
             print(f"Error setting up Gemini model: {e}")
             self.model = None
@@ -36,7 +36,10 @@ class GeminiHelper:
             4. Provide a brief interpretation of what's drawn
             """
 
+            print(f"Analyzing image with prompt: {prompt}")
             response = self.model.generate_content([prompt, image])
+            print(f"Received response: {response.text}")
             return response.text
         except Exception as e:
+            print(f"Received Error: {e}")
             return f"Error analyzing image: {str(e)}"
