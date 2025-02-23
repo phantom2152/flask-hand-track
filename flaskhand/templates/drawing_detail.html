@@ -11,12 +11,13 @@
     <link rel="stylesheet" href="/static/css/style.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
   </head>
-  <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-      <div class="container-fluid">
-        <a class="navbar-brand" href="/">Hand Drawing App</a>
-        <div class="navbar-nav">
-          <a class="nav-link" href="/drawings">View Drawings</a>
+  <body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white nav-top mb-4">
+      <div class="container-fluid px-4">
+        <span class="navbar-brand mb-0 h1">Hand Drawing App</span>
+        <div class="d-flex gap-2">
+          <a href="/" class="btn btn-outline-primary">Back to Drawing</a>
+          <a href="/drawings" class="btn btn-outline-secondary">All Drawings</a>
         </div>
       </div>
     </nav>
@@ -24,7 +25,7 @@
     <div class="container py-4">
       <div class="row justify-content-center">
         <div class="col-md-8">
-          <div class="card">
+          <div class="card drawing-card">
             <img
               src="data:image/png;base64,{{ drawing.image_data }}"
               class="card-img-top"
@@ -42,9 +43,12 @@
               </div>
               {% endif %}
 
-              <a href="/drawings" class="btn btn-primary mt-3"
-                >Back to Drawings</a
-              >
+              <div class="d-flex gap-2 mt-4">
+                <a href="/" class="btn btn-primary">Back to Drawing</a>
+                <a href="/drawings" class="btn btn-outline-secondary"
+                  >View All Drawings</a
+                >
+              </div>
             </div>
           </div>
         </div>
@@ -53,7 +57,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-      // Convert markdown to HTML if it exists
       document.querySelectorAll(".markdown-content").forEach((element) => {
         const content = element.textContent;
         element.innerHTML = marked.parse(content);

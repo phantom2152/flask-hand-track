@@ -10,37 +10,41 @@
     />
     <link rel="stylesheet" href="/static/css/style.css" />
   </head>
-  <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-      <div class="container-fluid">
-        <a class="navbar-brand" href="/">Hand Drawing App</a>
-        <div class="navbar-nav">
-          <a class="nav-link" href="/drawings">View Drawings</a>
+  <body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white nav-top mb-4">
+      <div class="container-fluid px-4">
+        <span class="navbar-brand mb-0 h1">Hand Drawing App</span>
+        <div class="d-flex">
+          <a href="/drawings" class="btn btn-outline-primary"
+            >View All Drawings</a
+          >
         </div>
       </div>
     </nav>
 
-    <div class="container-fluid py-4">
+    <div class="container-fluid px-4">
       <div class="row g-4">
-        <!-- Video and Canvas Section -->
         <div class="col-lg-8">
-          <div class="video-container shadow rounded">
+          <div class="video-container">
             <video id="videoElement" autoplay playsinline></video>
             <canvas id="indicatorCanvas"></canvas>
             <canvas id="drawingCanvas"></canvas>
           </div>
         </div>
 
-        <!-- Controls Section -->
         <div class="col-lg-4">
-          <div class="card shadow-sm">
+          <div class="card control-card">
             <div class="card-body">
               <h5 class="card-title mb-4">Drawing Controls</h5>
 
               <div class="mb-4">
-                <label for="minDistance" class="form-label"
-                  >Min Pinch Distance</label
+                <label
+                  for="minDistance"
+                  class="form-label d-flex justify-content-between"
                 >
+                  Min Pinch Distance
+                  <span class="text-muted" id="minDistanceValue">25</span>
+                </label>
                 <input
                   type="range"
                   class="form-range"
@@ -49,13 +53,16 @@
                   max="100"
                   value="25"
                 />
-                <small class="text-muted" id="minDistanceValue">25</small>
               </div>
 
               <div class="mb-4">
-                <label for="lineThickness" class="form-label"
-                  >Line Thickness</label
+                <label
+                  for="lineThickness"
+                  class="form-label d-flex justify-content-between"
                 >
+                  Line Thickness
+                  <span class="text-muted" id="lineThicknessValue">5</span>
+                </label>
                 <input
                   type="range"
                   class="form-range"
@@ -64,28 +71,27 @@
                   max="20"
                   value="5"
                 />
-                <small class="text-muted" id="lineThicknessValue">5</small>
               </div>
 
               <div class="mb-4">
                 <label for="drawingColor" class="form-label"
                   >Drawing Color</label
                 >
-                <input
-                  type="color"
-                  class="form-control form-control-color w-100"
-                  id="drawingColor"
-                  value="#FF0000"
-                />
+                <div class="color-picker-wrapper">
+                  <input type="color" id="drawingColor" value="#FF0000" />
+                </div>
               </div>
 
-              <div class="d-grid gap-2">
+              <div class="d-grid gap-3">
                 <button class="btn btn-outline-danger" id="clearCanvas">
                   Clear Canvas
                 </button>
                 <button class="btn btn-primary" id="saveDrawing">
                   Save Drawing
                 </button>
+                <a href="/drawings" class="btn btn-outline-secondary"
+                  >Show Drawings</a
+                >
               </div>
             </div>
           </div>
@@ -93,7 +99,6 @@
       </div>
     </div>
 
-    <!-- Toast Container -->
     <div class="toast-container position-fixed top-0 end-0 p-3">
       <div
         class="toast align-items-center text-white bg-success border-0"
