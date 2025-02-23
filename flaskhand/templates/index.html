@@ -12,6 +12,30 @@
         gap: 20px;
         padding: 20px;
       }
+      .main-content {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .analysis-panel {
+        background: #f5f5f5;
+        padding: 20px;
+        border-radius: 5px;
+        min-height: 100px;
+        width: 640px;
+      }
+      .analysis-panel h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+      }
+      #analysisContent {
+        white-space: pre-wrap;
+      }
+      #savingIndicator {
+        display: none;
+        color: #666;
+        margin-top: 10px;
+      }
       .video-container {
         position: relative;
         width: 640px;
@@ -57,9 +81,15 @@
   </head>
   <body>
     <div class="container">
-      <div class="video-container">
-        <canvas id="videoElement"></canvas>
-        <canvas id="drawingCanvas"></canvas>
+      <div class="main-content">
+        <div class="video-container">
+          <canvas id="videoElement"></canvas>
+          <canvas id="drawingCanvas"></canvas>
+        </div>
+        <div id="analysisPanel" class="analysis-panel">
+          <h3>Drawing Analysis</h3>
+          <div id="analysisContent"></div>
+        </div>
       </div>
       <div class="controls">
         <div class="control-group">
@@ -209,7 +239,25 @@
       // Save drawing
       document.getElementById("saveDrawing").addEventListener("click", () => {
         const drawingData = drawingCanvas.toDataURL("image/png");
+        const analysisContent = document.getElementById("analysisContent");
+        analysisContent.textContent = "Analyzing drawing...";
+
         socket.emit("drawing_data", { image: drawingData });
+      });
+
+      // Handle drawing saved response
+      socket.on("drawing_saved", (response) => {
+        const analysisContent = document.getElementById("analysisContent");
+        if (response.status === "success") {
+          if (response.analysis) {
+            analysisContent.textContent = response.analysis;
+          } else {
+            analysisContent.textContent =
+              "Drawing saved successfully! (No AI analysis available)";
+          }
+        } else {
+          analysisContent.textContent = "Error saving drawing.";
+        }
       });
 
       // Initial update of value displays

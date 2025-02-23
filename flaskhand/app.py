@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import base64
 from engineio.payload import Payload
+from database import DrawingDatabase
+from gemini_helper import GeminiHelper
 from hand_tracker import HandTracker
 import threading
 
@@ -13,7 +15,7 @@ Payload.max_decode_packets = 500
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=600)
-
+app.config['GEMINI_API_KEY'] = "AIzaSyAkWn9ijAQyJCC2mSn_pmi3fsko6IYrMRs"
 # Global variables
 camera = None
 hand_tracker = HandTracker()
@@ -51,7 +53,7 @@ def video_stream():
             print(f"Error processing frame: {e}")
             continue
 
-        socketio.sleep(0.033)  # Roughly 30 FPS
+        socketio.sleep(0.04)  # 25 FPS - slightly slower but more stable
 
 
 def stop_camera():
@@ -97,9 +99,56 @@ def handle_stop_video():
 
 @socketio.on('drawing_data')
 def handle_drawing_data(data):
-    # Handle drawing data from client
-    print('Received drawing data:', data)
-    # This will be implemented later for saving drawings
+    try:
+        # Validate input data
+        if not data or 'image' not in data:
+            raise ValueError("No image data received")
+
+        image_data = data.get('image')
+        if not image_data:
+            raise ValueError("Empty image data received")
+
+        # Initialize database and Gemini
+        db = DrawingDatabase()
+        gemini = GeminiHelper(app.config.get('GEMINI_API_KEY'))
+
+        # Analyze with Gemini if configured
+        analysis = None
+        if app.config.get('GEMINI_API_KEY'):
+            try:
+                analysis = gemini.analyze_image(image_data)
+            except Exception as e:
+                print(f"Gemini analysis failed: {str(e)}")
+                # Continue with saving even if analysis fails
+
+        # Save to database
+        try:
+            drawing_id = db.save_drawing(image_data, analysis)
+        except Exception as e:
+            raise Exception(f"Failed to save drawing to database: {str(e)}")
+
+        # Return success response
+        socketio.emit('drawing_saved', {
+            'status': 'success',
+            'drawing_id': drawing_id,
+            'analysis': analysis
+        })
+
+    except ValueError as ve:
+        print(f"Validation error: {str(ve)}")
+        socketio.emit('drawing_saved', {
+            'status': 'error',
+            'message': str(ve)
+        })
+    except Exception as e:
+        print(f"Error handling drawing data: {str(e)}")
+        socketio.emit('drawing_saved', {
+            'status': 'error',
+            'message': 'Failed to process drawing'
+        })
+    finally:
+        if 'db' in locals():
+            db.close()
 
 
 if __name__ == '__main__':
