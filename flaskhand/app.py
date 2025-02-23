@@ -27,6 +27,28 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/drawings')
+def drawings_list():
+    db = DrawingDatabase()
+    try:
+        drawings = db.get_all_drawings()
+        return render_template('drawings.html', drawings=drawings)
+    finally:
+        db.close()
+
+
+@app.route('/drawings/<int:drawing_id>')
+def drawing_detail(drawing_id):
+    db = DrawingDatabase()
+    try:
+        drawing = db.get_drawing(drawing_id)
+        if drawing is None:
+            return "Drawing not found", 404
+        return render_template('drawing_detail.html', drawing=drawing)
+    finally:
+        db.close()
+
+
 def process_base64_image(base64_string):
     # Remove data URL prefix if present
     if ',' in base64_string:
@@ -66,20 +88,6 @@ def handle_frame(data):
         }, room=request.sid)
 
 
-@socketio.on('get_drawings')
-def handle_get_drawings():
-    try:
-        db = DrawingDatabase()
-        drawings = db.get_all_drawings()
-        socketio.emit('drawings_list', drawings, room=request.sid)
-    except Exception as e:
-        print(f"Error fetching drawings: {e}")
-        socketio.emit('drawings_list', [], room=request.sid)
-    finally:
-        if 'db' in locals():
-            db.close()
-
-
 @socketio.on('save_drawing')
 def handle_save_drawing(data):
     try:
@@ -90,30 +98,36 @@ def handle_save_drawing(data):
         if not image_data:
             raise ValueError("Empty image data received")
 
-        # Initialize database and Gemini
+        # Remove data URL prefix if present
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+
+        # Initialize components
         db = DrawingDatabase()
         gemini = GeminiHelper(app.config.get('GEMINI_API_KEY'))
 
-        # Analyze with Gemini if configured
-        analysis = None
-        if app.config.get('GEMINI_API_KEY'):
-            try:
-                analysis = gemini.analyze_image(image_data)
-            except Exception as e:
-                print(f"Gemini analysis failed: {str(e)}")
-
-        # Save to database
         try:
-            drawing_id = db.save_drawing(image_data, analysis)
-        except Exception as e:
-            raise Exception(f"Failed to save drawing to database: {str(e)}")
+            # Get analysis if API key is configured
+            analysis = None
+            if app.config.get('GEMINI_API_KEY'):
+                try:
+                    analysis = gemini.analyze_image(image_data)
+                except Exception as e:
+                    print(f"Gemini analysis failed: {str(e)}")
 
-        # Return success response
-        socketio.emit('drawing_saved', {
-            'status': 'success',
-            'drawing_id': drawing_id,
-            'analysis': analysis
-        }, room=request.sid)
+            # Save to database
+            drawing_id = db.save_drawing(image_data, analysis)
+
+            # Return success response
+            socketio.emit('drawing_saved', {
+                'status': 'success',
+                'drawing_id': drawing_id,
+                'image_data': image_data,
+                'analysis': analysis
+            }, room=request.sid)
+
+        finally:
+            db.close()
 
     except ValueError as ve:
         print(f"Validation error: {str(ve)}")
@@ -127,9 +141,6 @@ def handle_save_drawing(data):
             'status': 'error',
             'message': 'Failed to process drawing'
         }, room=request.sid)
-    finally:
-        if 'db' in locals():
-            db.close()
 
 
 if __name__ == '__main__':
