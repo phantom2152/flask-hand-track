@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hand Drawing App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+      .container {
+        display: flex;
+        flex-direction: row;
+        gap: 20px;
+        padding: 20px;
+      }
+      .video-container {
+        position: relative;
+        width: 640px;
+        height: 480px;
+      }
+      #videoElement {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background-color: #666;
+      }
+      #drawingCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .controls {
+        width: 200px;
+        padding: 20px;
+        background-color: #f5f5f5;
+        border-radius: 5px;
+      }
+      .control-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+      }
+      input[type="range"] {
+        width: 100%;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="video-container">
+        <canvas id="videoElement"></canvas>
+        <canvas id="drawingCanvas"></canvas>
+      </div>
+      <div class="controls">
+        <div class="control-group">
+          <label for="minDistance">Min Pinch Distance</label>
+          <input type="range" id="minDistance" min="0" max="100" value="25" />
+          <span id="minDistanceValue">25</span>
+        </div>
+        <div class="control-group">
+          <label for="maxDistance">Max Pinch Distance</label>
+          <input type="range" id="maxDistance" min="0" max="200" value="100" />
+          <span id="maxDistanceValue">100</span>
+        </div>
+        <div class="control-group">
+          <label for="lineThickness">Line Thickness</label>
+          <input type="range" id="lineThickness" min="1" max="20" value="5" />
+          <span id="lineThicknessValue">5</span>
+        </div>
+        <div class="control-group">
+          <label for="drawingColor">Drawing Color</label>
+          <input type="color" id="drawingColor" value="#FF0000" />
+        </div>
+        <button id="clearCanvas">Clear Canvas</button>
+        <button id="saveDrawing">Save Drawing</button>
+        <button id="viewHistory">View History</button>
+      </div>
+    </div>
+
+    <script>
+      // Drawing state
+      let isDrawing = false;
+      let prevPoint = null;
+
+      // Initialize canvases
+      const videoCanvas = document.getElementById("videoElement");
+      const drawingCanvas = document.getElementById("drawingCanvas");
+      const videoCtx = videoCanvas.getContext("2d");
+      const drawingCtx = drawingCanvas.getContext("2d");
+
+      // Set canvas dimensions
+      videoCanvas.width = 640;
+      videoCanvas.height = 480;
+      drawingCanvas.width = 640;
+      drawingCanvas.height = 480;
+
+      // Get controls
+      const minDistanceSlider = document.getElementById("minDistance");
+      const maxDistanceSlider = document.getElementById("maxDistance");
+      const lineThicknessSlider = document.getElementById("lineThickness");
+      const colorPicker = document.getElementById("drawingColor");
+
+      // Update value displays
+      function updateValueDisplays() {
+        document.getElementById("minDistanceValue").textContent =
+          minDistanceSlider.value;
+        document.getElementById("maxDistanceValue").textContent =
+          maxDistanceSlider.value;
+        document.getElementById("lineThicknessValue").textContent =
+          lineThicknessSlider.value;
+      }
+
+      // Add input listeners
+      minDistanceSlider.addEventListener("input", updateValueDisplays);
+      maxDistanceSlider.addEventListener("input", updateValueDisplays);
+      lineThicknessSlider.addEventListener("input", updateValueDisplays);
+
+      // WebSocket connection
+      const socket = io();
+
+      socket.on("connect", () => {
+        console.log("Connected to server");
+        socket.emit("start-video");
+      });
+
+      socket.on("disconnect", () => {
+        console.log("Disconnected from server");
+      });
+
+      // Handle video frames
+      socket.on("video_frame", (data) => {
+        // Draw video frame
+        const img = new Image();
+        img.onload = () => {
+          videoCtx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
+        };
+        img.src = "data:image/jpeg;base64," + data.frame;
+
+        // Handle hand tracking
+        if (data.has_hand) {
+          const distance = calculateDistance(data.thumb_pos, data.index_pos);
+          const minDistance = parseInt(minDistanceSlider.value);
+          const maxDistance = parseInt(maxDistanceSlider.value);
+
+          // Draw pinch indicator circle when fingers are close enough
+          if (distance < minDistance) {
+            // Calculate midpoint between thumb and index finger
+            const midX = (data.thumb_pos[0] + data.index_pos[0]) / 2;
+            const midY = (data.thumb_pos[1] + data.index_pos[1]) / 2;
+
+            // Draw circle
+            videoCtx.beginPath();
+            videoCtx.arc(midX, midY, 15, 0, Math.PI * 2);
+            videoCtx.strokeStyle = colorPicker.value;
+            videoCtx.lineWidth = 2;
+            videoCtx.stroke();
+          }
+
+          // Drawing logic
+          if (distance < minDistance) {
+            if (!isDrawing) {
+              isDrawing = true;
+              prevPoint = data.index_pos;
+            } else if (prevPoint) {
+              drawLine(prevPoint, data.index_pos);
+            }
+            prevPoint = data.index_pos;
+          } else {
+            // Reset both drawing state and prevPoint for any distance outside the minimum
+            isDrawing = false;
+            prevPoint = null;
+          }
+        }
+      });
+
+      // Drawing functions
+      function calculateDistance(p1, p2) {
+        if (!p1 || !p2) return Infinity;
+        return Math.sqrt(
+          Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2)
+        );
+      }
+
+      function drawLine(start, end) {
+        drawingCtx.beginPath();
+        drawingCtx.moveTo(start[0], start[1]);
+        drawingCtx.lineTo(end[0], end[1]);
+        drawingCtx.strokeStyle = colorPicker.value;
+        drawingCtx.lineWidth = lineThicknessSlider.value;
+        drawingCtx.lineCap = "round";
+        drawingCtx.stroke();
+      }
+
+      // Clear canvas
+      document.getElementById("clearCanvas").addEventListener("click", () => {
+        drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+      });
+
+      // Save drawing
+      document.getElementById("saveDrawing").addEventListener("click", () => {
+        const drawingData = drawingCanvas.toDataURL("image/png");
+        socket.emit("drawing_data", { image: drawingData });
+      });
+
+      // Initial update of value displays
+      updateValueDisplays();
+    </script>
+  </body>
+</html>
