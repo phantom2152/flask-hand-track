@@ -4,19 +4,24 @@ Flask application for webcam-based drawing with hand tracking and image analysis
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO
 import cv2
+import os
 import numpy as np
 import base64
 from engineio.payload import Payload
 from database import DrawingDatabase
 from gemini_helper import GeminiHelper
 from hand_tracker import HandTracker
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # Increase max payload size for WebSocket
 Payload.max_decode_packets = 500
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
-app.config['GEMINI_API_KEY'] = "AIzaSyAkWn9ijAQyJCC2mSn_pmi3fsko6IYrMRs"
+app.config['GEMINI_API_KEY'] = os.getenv('GEMINI_API')
 socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=600)
 
 # Initialize hand tracker
