@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, Response, jsonify, request
 from flask_socketio import SocketIO
 import cv2
 import numpy as np
@@ -8,60 +8,18 @@ from database import DrawingDatabase
 from gemini_helper import GeminiHelper
 from hand_tracker import HandTracker
 import threading
+import re
 
 # Increase max payload size for WebSocket
 Payload.max_decode_packets = 500
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
-socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=600)
 app.config['GEMINI_API_KEY'] = "AIzaSyAkWn9ijAQyJCC2mSn_pmi3fsko6IYrMRs"
-# Global variables
-camera = None
+socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=600)
+
+# Initialize hand tracker
 hand_tracker = HandTracker()
-video_thread = None
-thread_lock = threading.Lock()
-stop_thread = False
-
-
-def get_camera():
-    global camera
-    if camera is None:
-        camera = cv2.VideoCapture(0)
-        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    return camera
-
-
-def video_stream():
-    global stop_thread
-    camera = get_camera()
-
-    while not stop_thread:
-        success, frame = camera.read()
-        if not success:
-            break
-
-        # Flip frame horizontally for mirror effect
-        frame = cv2.flip(frame, 1)
-
-        # Process frame with hand tracker
-        try:
-            frame_data = hand_tracker.process_and_encode_frame(frame)
-            socketio.emit('video_frame', frame_data)
-        except Exception as e:
-            print(f"Error processing frame: {e}")
-            continue
-
-        socketio.sleep(0.04)  # 25 FPS - slightly slower but more stable
-
-
-def stop_camera():
-    global camera, stop_thread
-    stop_thread = True
-    if camera is not None:
-        camera.release()
-        camera = None
 
 
 @app.route('/')
@@ -69,38 +27,48 @@ def index():
     return render_template('index.html')
 
 
-@socketio.on('connect')
-def handle_connect():
-    print('Client connected')
+def process_base64_image(base64_string):
+    # Remove data URL prefix if present
+    if ',' in base64_string:
+        base64_string = base64_string.split(',')[1]
+
+    # Decode base64 to bytes
+    image_bytes = base64.b64decode(base64_string)
+
+    # Convert to numpy array
+    nparr = np.frombuffer(image_bytes, np.uint8)
+
+    # Decode image
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    return image
 
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
-    stop_camera()
+@socketio.on('process_frame')
+def handle_frame(data):
+    try:
+        # Get frame data
+        frame = process_base64_image(data['frame'])
+        if frame is None:
+            raise ValueError("Invalid frame data")
+
+        # Process with hand tracker
+        hand_data = hand_tracker.process_and_encode_frame(frame)
+
+        # Send processed data back to client
+        socketio.emit('frame_processed', {
+            'hand_data': hand_data
+        }, room=request.sid)
+
+    except Exception as e:
+        print(f"Error processing frame: {e}")
+        socketio.emit('frame_processed', {
+            'error': str(e)
+        }, room=request.sid)
 
 
-@socketio.on('start-video')
-def handle_start_video():
-    global video_thread, stop_thread
-    print('Starting video stream')
-
-    with thread_lock:
-        if video_thread is None:
-            stop_thread = False
-            video_thread = socketio.start_background_task(video_stream)
-
-
-@socketio.on('stop-video')
-def handle_stop_video():
-    print('Stopping video stream')
-    stop_camera()
-
-
-@socketio.on('drawing_data')
+@socketio.on('save_drawing')
 def handle_drawing_data(data):
     try:
-        # Validate input data
         if not data or 'image' not in data:
             raise ValueError("No image data received")
 
@@ -119,7 +87,6 @@ def handle_drawing_data(data):
                 analysis = gemini.analyze_image(image_data)
             except Exception as e:
                 print(f"Gemini analysis failed: {str(e)}")
-                # Continue with saving even if analysis fails
 
         # Save to database
         try:
@@ -132,20 +99,20 @@ def handle_drawing_data(data):
             'status': 'success',
             'drawing_id': drawing_id,
             'analysis': analysis
-        })
+        }, room=request.sid)
 
     except ValueError as ve:
         print(f"Validation error: {str(ve)}")
         socketio.emit('drawing_saved', {
             'status': 'error',
             'message': str(ve)
-        })
+        }, room=request.sid)
     except Exception as e:
         print(f"Error handling drawing data: {str(e)}")
         socketio.emit('drawing_saved', {
             'status': 'error',
             'message': 'Failed to process drawing'
-        })
+        }, room=request.sid)
     finally:
         if 'db' in locals():
             db.close()
@@ -155,4 +122,4 @@ if __name__ == '__main__':
     try:
         socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=5001)
     finally:
-        stop_camera()
+        print("Server shutting down")

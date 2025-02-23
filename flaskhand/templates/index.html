@@ -12,30 +12,6 @@
         gap: 20px;
         padding: 20px;
       }
-      .main-content {
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-      }
-      .analysis-panel {
-        background: #f5f5f5;
-        padding: 20px;
-        border-radius: 5px;
-        min-height: 100px;
-        width: 640px;
-      }
-      .analysis-panel h3 {
-        margin-top: 0;
-        margin-bottom: 10px;
-      }
-      #analysisContent {
-        white-space: pre-wrap;
-      }
-      #savingIndicator {
-        display: none;
-        color: #666;
-        margin-top: 10px;
-      }
       .video-container {
         position: relative;
         width: 640px;
@@ -45,7 +21,7 @@
         position: absolute;
         width: 100%;
         height: 100%;
-        background-color: #666;
+        transform: scaleX(-1); /* Mirror effect */
       }
       #drawingCanvas {
         position: absolute;
@@ -54,6 +30,7 @@
         width: 100%;
         height: 100%;
         pointer-events: none;
+        transform: scaleX(-1); /* Mirror effect */
       }
       .controls {
         width: 200px;
@@ -77,19 +54,35 @@
         margin-bottom: 10px;
         cursor: pointer;
       }
+      .error-message {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(255, 0, 0, 0.8);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        z-index: 1000;
+      }
+      #indicatorCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        transform: scaleX(-1); /* Mirror effect */
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="main-content">
-        <div class="video-container">
-          <canvas id="videoElement"></canvas>
-          <canvas id="drawingCanvas"></canvas>
-        </div>
-        <div id="analysisPanel" class="analysis-panel">
-          <h3>Drawing Analysis</h3>
-          <div id="analysisContent"></div>
-        </div>
+      <div class="video-container">
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="indicatorCanvas"></canvas>
+        <canvas id="drawingCanvas"></canvas>
+        <div id="processingIndicator">Processing...</div>
       </div>
       <div class="controls">
         <div class="control-group">
@@ -118,23 +111,27 @@
     </div>
 
     <script>
+      // Camera and canvas setup
+      const video = document.getElementById("videoElement");
+      const drawingCanvas = document.getElementById("drawingCanvas");
+      const indicatorCanvas = document.getElementById("indicatorCanvas");
+      const drawingCtx = drawingCanvas.getContext("2d");
+      const indicatorCtx = indicatorCanvas.getContext("2d");
+      const processingIndicator = document.getElementById(
+        "processingIndicator"
+      );
+
+      // Set canvas dimensions
+      drawingCanvas.width = 640;
+      drawingCanvas.height = 480;
+      indicatorCanvas.width = 640;
+      indicatorCanvas.height = 480;
+
       // Drawing state
       let isDrawing = false;
       let prevPoint = null;
 
-      // Initialize canvases
-      const videoCanvas = document.getElementById("videoElement");
-      const drawingCanvas = document.getElementById("drawingCanvas");
-      const videoCtx = videoCanvas.getContext("2d");
-      const drawingCtx = drawingCanvas.getContext("2d");
-
-      // Set canvas dimensions
-      videoCanvas.width = 640;
-      videoCanvas.height = 480;
-      drawingCanvas.width = 640;
-      drawingCanvas.height = 480;
-
-      // Get controls
+      // Controls
       const minDistanceSlider = document.getElementById("minDistance");
       const maxDistanceSlider = document.getElementById("maxDistance");
       const lineThicknessSlider = document.getElementById("lineThickness");
@@ -150,70 +147,126 @@
           lineThicknessSlider.value;
       }
 
-      // Add input listeners
-      minDistanceSlider.addEventListener("input", updateValueDisplays);
-      maxDistanceSlider.addEventListener("input", updateValueDisplays);
-      lineThicknessSlider.addEventListener("input", updateValueDisplays);
-
-      // WebSocket connection
+      // Socket setup
       const socket = io();
+      let isConnected = false;
+      let frameProcessing = false;
 
+      // Camera setup
+      async function setupCamera() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: 640,
+              height: 480,
+            },
+          });
+          video.srcObject = stream;
+          return true;
+        } catch (error) {
+          console.error("Error accessing camera:", error);
+          showError("Could not access camera. Please check permissions.");
+          return false;
+        }
+      }
+
+      // Frame capture and processing
+      function captureFrame() {
+        if (!isConnected || frameProcessing) return;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+
+        // Draw the video frame to the canvas
+        ctx.drawImage(video, 0, 0);
+
+        // Get the frame data
+        const frameData = canvas.toDataURL("image/jpeg", 0.7);
+
+        // Send to server
+        frameProcessing = true;
+        socket.emit("process_frame", { frame: frameData });
+      }
+
+      // Socket event handlers
       socket.on("connect", () => {
         console.log("Connected to server");
-        socket.emit("start-video");
+        isConnected = true;
+        setupCamera();
       });
 
       socket.on("disconnect", () => {
         console.log("Disconnected from server");
+        isConnected = false;
+        showError("Connection lost. Reconnecting...");
       });
 
-      // Handle video frames
-      socket.on("video_frame", (data) => {
-        // Draw video frame
-        const img = new Image();
-        img.onload = () => {
-          videoCtx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
-        };
-        img.src = "data:image/jpeg;base64," + data.frame;
+      socket.on("frame_processed", (data) => {
+        frameProcessing = false;
 
-        // Handle hand tracking
-        if (data.has_hand) {
-          const distance = calculateDistance(data.thumb_pos, data.index_pos);
+        if (data.hand_data) {
+          const handData = data.hand_data;
+          handleHandTracking(handData);
+        }
+
+        // Request next frame processing
+        requestAnimationFrame(captureFrame);
+      });
+
+      // Hand tracking visualization and drawing logic
+      function handleHandTracking(handData) {
+        if (handData.has_hand) {
+          const distance = calculateDistance(
+            handData.thumb_pos,
+            handData.index_pos
+          );
           const minDistance = parseInt(minDistanceSlider.value);
-          const maxDistance = parseInt(maxDistanceSlider.value);
 
-          // Draw pinch indicator circle when fingers are close enough
+          // Clear the indicator canvas
+          indicatorCtx.clearRect(
+            0,
+            0,
+            indicatorCanvas.width,
+            indicatorCanvas.height
+          );
+
           if (distance < minDistance) {
-            // Calculate midpoint between thumb and index finger
-            const midX = (data.thumb_pos[0] + data.index_pos[0]) / 2;
-            const midY = (data.thumb_pos[1] + data.index_pos[1]) / 2;
+            // Draw indicator circle on indicator canvas
+            const midX = (handData.thumb_pos[0] + handData.index_pos[0]) / 2;
+            const midY = (handData.thumb_pos[1] + handData.index_pos[1]) / 2;
 
-            // Draw circle
-            videoCtx.beginPath();
-            videoCtx.arc(midX, midY, 15, 0, Math.PI * 2);
-            videoCtx.strokeStyle = colorPicker.value;
-            videoCtx.lineWidth = 2;
-            videoCtx.stroke();
-          }
+            indicatorCtx.beginPath();
+            indicatorCtx.arc(midX, midY, 15, 0, Math.PI * 2);
+            indicatorCtx.strokeStyle = colorPicker.value;
+            indicatorCtx.lineWidth = 2;
+            indicatorCtx.stroke();
 
-          // Drawing logic
-          if (distance < minDistance) {
+            // Handle drawing on drawing canvas
             if (!isDrawing) {
               isDrawing = true;
-              prevPoint = data.index_pos;
+              prevPoint = handData.index_pos;
             } else if (prevPoint) {
-              drawLine(prevPoint, data.index_pos);
+              drawLine(prevPoint, handData.index_pos);
             }
-            prevPoint = data.index_pos;
+            prevPoint = handData.index_pos;
           } else {
-            // Reset both drawing state and prevPoint for any distance outside the minimum
             isDrawing = false;
             prevPoint = null;
           }
+        } else {
+          // Clear indicator if no hand detected
+          indicatorCtx.clearRect(
+            0,
+            0,
+            indicatorCanvas.width,
+            indicatorCanvas.height
+          );
         }
-      });
+      }
 
-      // Drawing functions
+      // Drawing helpers
       function calculateDistance(p1, p2) {
         if (!p1 || !p2) return Infinity;
         return Math.sqrt(
@@ -231,37 +284,45 @@
         drawingCtx.stroke();
       }
 
-      // Clear canvas
+      // UI helpers
+      function showError(message) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "error-message";
+        errorDiv.textContent = message;
+        document.querySelector(".video-container").appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
+      }
+
+      // Event listeners
       document.getElementById("clearCanvas").addEventListener("click", () => {
         drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
       });
 
-      // Save drawing
       document.getElementById("saveDrawing").addEventListener("click", () => {
         const drawingData = drawingCanvas.toDataURL("image/png");
-        const analysisContent = document.getElementById("analysisContent");
-        analysisContent.textContent = "Analyzing drawing...";
-
-        socket.emit("drawing_data", { image: drawingData });
+        socket.emit("save_drawing", { image: drawingData });
       });
 
-      // Handle drawing saved response
-      socket.on("drawing_saved", (response) => {
-        const analysisContent = document.getElementById("analysisContent");
-        if (response.status === "success") {
-          if (response.analysis) {
-            analysisContent.textContent = response.analysis;
-          } else {
-            analysisContent.textContent =
-              "Drawing saved successfully! (No AI analysis available)";
-          }
+      // Start capturing frames when video is ready
+      video.addEventListener("play", () => {
+        captureFrame();
+      });
+
+      // Initialize
+      updateValueDisplays();
+      minDistanceSlider.addEventListener("input", updateValueDisplays);
+      maxDistanceSlider.addEventListener("input", updateValueDisplays);
+      lineThicknessSlider.addEventListener("input", updateValueDisplays);
+
+      // Handle visibility changes
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          frameProcessing = true; // Stop processing
         } else {
-          analysisContent.textContent = "Error saving drawing.";
+          frameProcessing = false;
+          captureFrame(); // Resume processing
         }
       });
-
-      // Initial update of value displays
-      updateValueDisplays();
     </script>
   </body>
 </html>
