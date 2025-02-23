@@ -66,8 +66,22 @@ def handle_frame(data):
         }, room=request.sid)
 
 
+@socketio.on('get_drawings')
+def handle_get_drawings():
+    try:
+        db = DrawingDatabase()
+        drawings = db.get_all_drawings()
+        socketio.emit('drawings_list', drawings, room=request.sid)
+    except Exception as e:
+        print(f"Error fetching drawings: {e}")
+        socketio.emit('drawings_list', [], room=request.sid)
+    finally:
+        if 'db' in locals():
+            db.close()
+
+
 @socketio.on('save_drawing')
-def handle_drawing_data(data):
+def handle_save_drawing(data):
     try:
         if not data or 'image' not in data:
             raise ValueError("No image data received")
