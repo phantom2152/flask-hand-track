@@ -1,4 +1,7 @@
-from flask import Flask, render_template, Response, jsonify, request
+"""
+Flask application for webcam-based drawing with hand tracking and image analysis.
+"""
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO
 import cv2
 import numpy as np
@@ -7,8 +10,6 @@ from engineio.payload import Payload
 from database import DrawingDatabase
 from gemini_helper import GeminiHelper
 from hand_tracker import HandTracker
-import threading
-import re
 
 # Increase max payload size for WebSocket
 Payload.max_decode_packets = 500
@@ -20,6 +21,30 @@ socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=600)
 
 # Initialize hand tracker
 hand_tracker = HandTracker()
+
+
+def process_base64_image(base64_string, flip_horizontal=True):
+    """Process and optionally flip a base64 encoded image."""
+    # Remove data URL prefix if present
+    if ',' in base64_string:
+        base64_string = base64_string.split(',')[1]
+
+    # Decode base64 to bytes
+    image_bytes = base64.b64decode(base64_string)
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    # Flip the image horizontally if needed
+    if flip_horizontal and image is not None:
+        image = cv2.flip(image, 1)
+
+    return image
+
+
+def encode_image_to_base64(image):
+    """Convert an OpenCV image to base64 string."""
+    _, buffer = cv2.imencode('.png', image)
+    return base64.b64encode(buffer).decode('utf-8')
 
 
 @app.route('/')
@@ -49,27 +74,11 @@ def drawing_detail(drawing_id):
         db.close()
 
 
-def process_base64_image(base64_string):
-    # Remove data URL prefix if present
-    if ',' in base64_string:
-        base64_string = base64_string.split(',')[1]
-
-    # Decode base64 to bytes
-    image_bytes = base64.b64decode(base64_string)
-
-    # Convert to numpy array
-    nparr = np.frombuffer(image_bytes, np.uint8)
-
-    # Decode image
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    return image
-
-
 @socketio.on('process_frame')
 def handle_frame(data):
     try:
-        # Get frame data
-        frame = process_base64_image(data['frame'])
+        # Get frame data - don't flip for live preview
+        frame = process_base64_image(data['frame'], flip_horizontal=False)
         if frame is None:
             raise ValueError("Invalid frame data")
 
@@ -98,9 +107,13 @@ def handle_save_drawing(data):
         if not image_data:
             raise ValueError("Empty image data received")
 
-        # Remove data URL prefix if present
-        if ',' in image_data:
-            image_data = image_data.split(',')[1]
+        # Process the image and flip it horizontally
+        image = process_base64_image(image_data, flip_horizontal=True)
+        if image is None:
+            raise ValueError("Failed to process image")
+
+        # Convert back to base64
+        image_data = encode_image_to_base64(image)
 
         # Initialize components
         db = DrawingDatabase()
@@ -144,7 +157,4 @@ def handle_save_drawing(data):
 
 
 if __name__ == '__main__':
-    try:
-        socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=5001)
-    finally:
-        print("Server shutting down")
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True, port=5001)
